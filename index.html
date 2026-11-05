@@ -85,6 +85,19 @@ function cleanName(name) {
   return n;
 }
 
+// Display-only: registry names use straight quotes ("Ma's", "Grubbin'", '"Great American
+// Music Hall"'). Convert them to curly punctuation. Maps search keeps the raw name.
+function curly(s) {
+  return s
+    .replace(/`+$/, "")                                       // stray trailing backticks
+    .replace(/(?<=[\p{L}\p{N}])["'`](?=[\p{L}\p{N}])/gu, "’") // Ma's, Mustafio"S
+    .replace(/"([^"]*)"/g, "“$1”")                            // "quoted"
+    .replace(/(^|[\s(])'(?=\d)/g, "$1’")                      // '90s
+    .replace(/(^|[\s(])'/g, "$1‘")                            // opening single quote
+    .replace(/['`]/g, "’")                                    // Grubbin', Gus'
+    .replace(/"/g, "”");                                      // any unpaired leftover
+}
+
 function buildList(rows) {
   const seen = new Set();
   const list = [];
@@ -163,7 +176,7 @@ btn.addEventListener("click", async () => {
   card.rel = "noopener";
   const name = document.createElement("span");
   name.className = "name";
-  name.textContent = p.name;
+  name.textContent = curly(p.name);
   card.replaceChildren(name, p.address, document.createElement("br"), p.hood || "");
   out.replaceChildren(card);
 });
