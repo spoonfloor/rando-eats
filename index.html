@@ -78,8 +78,9 @@
   .menu button { display: block; width: 100%; padding: 10px 14px; border: 0;
     border-radius: calc(var(--button-radius) - 4px); background: transparent;
     color: inherit; font: inherit; font-size: 15px; text-align: left; cursor: pointer; white-space: nowrap; }
-  .menu button:hover, .menu button:focus-visible
+  .menu button:enabled:hover, .menu button:focus-visible
     { background: color-mix(in srgb, var(--menu-color), white 8%); outline: none; }
+  .menu button:disabled { color: var(--text-muted); opacity: 0.6; cursor: default; }
 
   /* Stats modal: a native <dialog> (focus, Escape, screen readers) restyled to match the card. */
   #stats { width: var(--content-width); box-sizing: border-box; margin: auto; padding: 8px 20px 18px;
@@ -113,8 +114,8 @@
 </button>
 <div id="page-menu" class="menu" popover>
   <button type="button" id="show-stats">Show stats</button>
-  <button type="button" id="reset-seen">Reset viewed list</button>
-  <button type="button" id="reset-excluded">Reset exclude list</button>
+  <button type="button" id="reset-seen">Clear viewed</button>
+  <button type="button" id="reset-excluded">Clear excluded</button>
 </div>
 <div id="card-menu" class="menu" popover>
   <button type="button" id="exclude">Exclude this entry</button>
@@ -377,15 +378,13 @@ document.getElementById("exclude").addEventListener("click", async () => {
 document.getElementById("reset-excluded").addEventListener("click", () => {
   pageMenu.hidePopover();
   const count = excludedCount();
-  if (count === 0) return notify(el("p", { className: "note" }, "Nothing is excluded"));
-
   const snapshot = resetExcluded();
   const undo = el("button", { type: "button" }, "Undo");
   undo.addEventListener("click", () => {
     restoreExcluded(snapshot);
     clearNote();
   });
-  const label = count === 1 ? "Cleared 1 exclusion · " : `Cleared ${count} exclusions · `;
+  const label = count === 1 ? "Cleared 1 exclusion · " : `Cleared ${fmt(count)} exclusions · `;
   notify(el("p", { className: "note" }, label, undo));
 });
 
@@ -393,8 +392,6 @@ document.getElementById("reset-excluded").addEventListener("click", () => {
 document.getElementById("reset-seen").addEventListener("click", () => {
   pageMenu.hidePopover();
   const count = seen.size;
-  if (count === 0) return notify(el("p", { className: "note" }, "Nothing viewed yet"));
-
   const snapshot = { seen: [...seen], last: session.getItem(LAST) };
   seen.clear();
   session.setItem(SEEN, "[]");
@@ -408,6 +405,20 @@ document.getElementById("reset-seen").addEventListener("click", () => {
   });
   const label = count === 1 ? "Cleared 1 viewed · " : `Cleared ${fmt(count)} viewed · `;
   notify(el("p", { className: "note" }, label, undo));
+});
+
+// The Clear items show how much they’d clear, and are disabled when there’s
+// nothing to clear. Set on open, so they always reflect the current state.
+const resetSeenItem = document.getElementById("reset-seen");
+const resetExcludedItem = document.getElementById("reset-excluded");
+function labelClear(item, text, count) {
+  item.textContent = count ? `${text} (${fmt(count)})` : text;
+  item.disabled = count === 0;
+}
+pageMenu.addEventListener("beforetoggle", e => {
+  if (e.newState !== "open") return;
+  labelClear(resetSeenItem, "Clear viewed", seen.size);
+  labelClear(resetExcludedItem, "Clear excluded", excludedCount());
 });
 
 // Stats. Counts are of the current list so they add up:
