@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Let’s Eat!</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #111; --fg: #eee; --muted: #aaa; --link: #8ab4f8;
+    --btn-bg: #eee; --btn-fg: #111;
+  }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+  main { position: relative; height: 100%; }
+  /* Button is pinned to the exact center; the result hangs below it so the button never moves. */
+  #eat { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    font: inherit; font-size: 22px; padding: 16px 36px; border: 0; border-radius: 999px;
+    background: var(--btn-bg); color: var(--btn-fg); cursor: pointer; }
+  #eat:active { transform: translate(-50%, -50%) scale(0.97); }
+  #result { position: absolute; left: 0; right: 0; top: calc(50% + 56px);
+    text-align: center; line-height: 1.6; color: var(--muted); padding: 0 16px; }
+  #result a { display: inline-block; margin-bottom: 2px; font-size: 22px; font-weight: 500;
+    color: var(--link); text-underline-offset: 4px; }
+</style>
+</head>
+<body>
+<main>
+  <button id="eat" type="button">Let’s Eat!</button>
+  <div id="result" aria-live="polite"></div>
+</main>
+
+<script>
+// Canonical list (see NOTES.md): open SF Business Registry locations, geocoded inside
+// SF city limits, holding a DPH restaurant permit (H24/H25/H26).
+const QUERY = "https://data.sf.gov/resource/g8m3-pdis.json?" + new URLSearchParams({
+  $select: "dba_name,full_business_address,lic,neighborhoods_analysis_boundaries",
+  $where: "location_end_date IS NULL AND dba_end_date IS NULL" +
+          " AND neighborhoods_analysis_boundaries IS NOT NULL" +
+          " AND (lic like '%H24%' OR lic like '%H25%' OR lic like '%H26%')",
+  $limit: "10000",
+});
+
+// Places that hold a restaurant permit but aren't somewhere the public goes to eat.
+const MARKET_PERMIT = /\bH0[3-9]R?\b|\bH8[0-3]R?\b/;              // also a grocery/supermarket
+const CONTRACT_CAFE = /@|\b(sodexo|aramark|guckenheimer|levy restaurants|events mgmt|employee)\b/i;
+const ADDRESS_AS_NAME = /^\d+\s.*\b(llc|inc|corp|corporation|lp|ltd)\b/i;
+
+function cleanName(name) {
+  let n = name.trim().replace(/\s+/g, " ");
+  // "Boichik Bagels LLC" -> "Boichik Bagels" (repeat for "… Co., Inc.")
+  const suffix = /[,\s]+(llc|l\.l\.c\.?|inc\.?|corp\.?|corporation|ltd\.?|lp)$/i;
+  while (suffix.test(n)) n = n.replace(suffix, "");
+  // "Ritz Carlton San Francisco The" -> "The Ritz Carlton San Francisco"
+  if (/\sthe$/i.test(n)) n = "The " + n.replace(/\sthe$/i, "");
+  return n;
+}
+
+function buildList(rows) {
+  const seen = new Set();
+  const list = [];
+  for (const r of rows) {
+    const raw = r.dba_name || "";
+    if (!raw || MARKET_PERMIT.test(r.lic || "") || CONTRACT_CAFE.test(raw) || ADDRESS_AS_NAME.test(raw)) continue;
+    const name = cleanName(raw);
+    const address = (r.full_business_address || "").trim().replace(/\s+/g, " ");
+    const key = (name + "|" + address).toUpperCase().replace(/[^A-Z0-9|]/g, "");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    list.push({ key, name, address, hood: r.neighborhoods_analysis_boundaries });
+  }
+  return list;
+}
+
+const listPromise = fetch(QUERY)
+  .then(res => { if (!res.ok) throw new Error(res.status); return res.json(); })
+  .then(buildList);
+listPromise.then(l => console.log(`Loaded ${l.length} restaurants`)).catch(() => {});
+
+// No repeats until the tab closes: sessionStorage is per tab, survives reloads,
+// and is cleared when the tab closes. Once every restaurant has been shown, the
+// cycle restarts (skipping the one just shown so it can't appear twice in a row).
+// If storage is unavailable (blocked, private mode, data: URL), fall back to an
+// in-memory store: no repeats until reload instead of until the tab closes.
+const store = (() => {
+  try {
+    sessionStorage.setItem("_probe", "1");
+    sessionStorage.removeItem("_probe");
+    return sessionStorage;
+  } catch {
+    const m = new Map();
+    return { getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v)) };
+  }
+})();
+const SEEN = "seen", LAST = "last";
+const seen = new Set(JSON.parse(store.getItem(SEEN) || "[]"));
+
+function pick(list) {
+  let pool = list.filter(p => !seen.has(p.key));
+  if (pool.length === 0) {
+    seen.clear();
+    const last = store.getItem(LAST);
+    pool = list.length > 1 ? list.filter(p => p.key !== last) : list;
+  }
+  const p = pool[Math.floor(Math.random() * pool.length)];
+  seen.add(p.key);
+  store.setItem(SEEN, JSON.stringify([...seen]));
+  store.setItem(LAST, p.key);
+  return p;
+}
+
+const btn = document.getElementById("eat");
+const out = document.getElementById("result");
+
+btn.addEventListener("click", async () => {
+  let list;
+  try {
+    list = await listPromise;
+  } catch {
+    out.textContent = "Couldn’t load restaurants. Reload to try again.";
+    return;
+  }
+  const p = pick(list);
+
+  const a = document.createElement("a");
+  a.href = "https://www.google.com/maps/search/?api=1&query=" +
+           encodeURIComponent(`${p.name}, ${p.address}, San Francisco, CA`);
+  a.target = "_blank";
+  a.rel = "noopener";
+  a.textContent = p.name;
+  out.replaceChildren(a, document.createElement("br"), p.address,
+                      document.createElement("br"), p.hood || "");
+});
+</script>
+</body>
+</html>
