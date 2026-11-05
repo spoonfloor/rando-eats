@@ -4,24 +4,53 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Let’s Eat!</title>
+<link rel="preload" href="fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
 <style>
+  @font-face {
+    font-family: "Inter";
+    src: url("fonts/InterVariable.woff2") format("woff2");
+    font-weight: 100 900;
+    font-style: normal;
+    font-display: swap;
+  }
+
   :root {
     color-scheme: dark;
-    --bg: #111; --fg: #eee; --muted: #aaa; --link: #8ab4f8;
-    --btn-bg: #eee; --btn-fg: #111;
+
+    /* Design tokens */
+    --page-color: #111111;
+    --theme-color: #eeeeee;
+    --button-color: var(--theme-color);
+    --card-color: #262626;
+    --button-radius: 16px;
+    --card-radius: var(--button-radius);
+
+    /* Derived */
+    --text-color: #eeeeee;
+    --text-muted: #a3a3a3;
+    --button-text-color: var(--page-color);
   }
-  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+
+  html, body { margin: 0; height: 100%; background: var(--page-color); color: var(--text-color);
+    font-family: "Inter", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
   main { position: relative; height: 100%; }
-  /* Button is pinned to the exact center; the result hangs below it so the button never moves. */
+
+  /* Button is pinned to the exact center; the card hangs below it so the button never moves. */
   #eat { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-    font: inherit; font-size: 22px; padding: 16px 36px; border: 0; border-radius: 999px;
-    background: var(--btn-bg); color: var(--btn-fg); cursor: pointer; }
+    font: inherit; font-size: 22px; font-weight: 500; padding: 16px 36px; border: 0;
+    border-radius: var(--button-radius); background: var(--button-color);
+    color: var(--button-text-color); cursor: pointer; white-space: nowrap; }
   #eat:active { transform: translate(-50%, -50%) scale(0.97); }
-  #result { position: absolute; left: 0; right: 0; top: calc(50% + 56px);
-    text-align: center; line-height: 1.6; color: var(--muted); padding: 0 16px; }
-  #result a { display: inline-block; margin-bottom: 2px; font-size: 22px; font-weight: 500;
-    color: var(--link); text-underline-offset: 4px; }
+
+  #result { position: absolute; left: 50%; top: calc(50% + 52px); transform: translateX(-50%);
+    width: min(340px, calc(100% - 32px)); }
+  .card { display: block; padding: 18px 20px; border-radius: var(--card-radius);
+    background: var(--card-color); color: var(--text-muted); text-decoration: none;
+    text-align: center; line-height: 1.5; font-size: 15px; }
+  .card:hover { background: color-mix(in srgb, var(--card-color), white 6%); }
+  .card:focus-visible { outline: 2px solid var(--theme-color); outline-offset: 2px; }
+  .card .name { display: block; margin-bottom: 4px; color: var(--text-color);
+    font-size: 20px; font-weight: 500; }
 </style>
 </head>
 <body>
@@ -117,19 +146,26 @@ btn.addEventListener("click", async () => {
   try {
     list = await listPromise;
   } catch {
-    out.textContent = "Couldn’t load restaurants. Reload to try again.";
+    const msg = document.createElement("div");
+    msg.className = "card";
+    msg.textContent = "Couldn’t load restaurants. Reload to try again.";
+    out.replaceChildren(msg);
     return;
   }
   const p = pick(list);
 
-  const a = document.createElement("a");
-  a.href = "https://www.google.com/maps/search/?api=1&query=" +
-           encodeURIComponent(`${p.name}, ${p.address}, San Francisco, CA`);
-  a.target = "_blank";
-  a.rel = "noopener";
-  a.textContent = p.name;
-  out.replaceChildren(a, document.createElement("br"), p.address,
-                      document.createElement("br"), p.hood || "");
+  // The whole card is the link to the map.
+  const card = document.createElement("a");
+  card.className = "card";
+  card.href = "https://www.google.com/maps/search/?api=1&query=" +
+              encodeURIComponent(`${p.name}, ${p.address}, San Francisco, CA`);
+  card.target = "_blank";
+  card.rel = "noopener";
+  const name = document.createElement("span");
+  name.className = "name";
+  name.textContent = p.name;
+  card.replaceChildren(name, p.address, document.createElement("br"), p.hood || "");
+  out.replaceChildren(card);
 });
 </script>
 </body>
