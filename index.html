@@ -19,51 +19,83 @@
 
     /* Design tokens */
     --page-color: #111111;
-    --theme-color: #eeeeee;
+    --theme-color: #ff591f;
     --button-color: var(--theme-color);
     --card-color: #262626;
-    --button-radius: 16px;
+    --button-radius: 12px;
     --card-radius: var(--button-radius);
+    --content-width: min(340px, calc(100vw - 32px)); /* button and card share this */
+    --lift: 6vh; /* raises button and card above true center */
 
     /* Derived */
     --text-color: #eeeeee;
     --text-muted: #a3a3a3;
-    --button-text-color: var(--page-color);
+    --button-text-color: white;
+    --menu-color: color-mix(in srgb, var(--card-color), white 10%);
   }
 
   html, body { margin: 0; height: 100%; background: var(--page-color); color: var(--text-color);
     font-family: "Inter", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
   main { position: relative; height: 100%; }
 
-  /* Button is pinned to the exact center; the card hangs below it so the button never moves. */
-  #eat { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-    font: inherit; font-size: 22px; font-weight: 500; padding: 16px 36px; border: 0;
+  /* Button is pinned just above center (by --lift); the card hangs below it so the button never moves. */
+  #eat { position: absolute; left: 50%; top: calc(50% - var(--lift)); transform: translate(-50%, -50%);
+    width: var(--content-width); box-sizing: border-box;
+    font: inherit; font-size: 22px; font-weight: 500; padding: 16px 20px; border: 0;
     border-radius: var(--button-radius); background: var(--button-color);
     color: var(--button-text-color); cursor: pointer; white-space: nowrap; }
   #eat:active { transform: translate(-50%, -50%) scale(0.97); }
 
-  #result { position: absolute; left: 50%; top: calc(50% + 52px); transform: translateX(-50%);
-    width: min(340px, calc(100% - 32px)); }
-  .card { display: block; padding: 18px 20px; border-radius: var(--card-radius);
-    background: var(--card-color); color: var(--text-muted); text-decoration: none;
+  #result { position: absolute; left: 50%; top: calc(50% - var(--lift) + 52px); transform: translateX(-50%);
+    width: var(--content-width); }
+
+  /* The card is a container; its link stretches over the whole card (::after),
+     and the kebab sits above that so it stays separately clickable. */
+  .card { position: relative; padding: 32px 20px; border-radius: var(--card-radius);
+    background: var(--card-color); color: var(--text-muted);
     text-align: center; line-height: 1.5; font-size: 15px; }
   .card:hover { background: color-mix(in srgb, var(--card-color), white 6%); }
-  .card:focus-visible { outline: 2px solid var(--theme-color); outline-offset: 2px; }
+  .card:has(.card-link:focus-visible) { outline: 2px solid var(--theme-color); outline-offset: 2px; }
+  .card-link { color: inherit; text-decoration: none; outline: none; }
+  .card-link::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
   .card .name { display: block; margin-bottom: 4px; color: var(--text-color);
     font-size: 20px; font-weight: 500; }
+
+  .kebab { position: absolute; top: 4px; right: 4px; z-index: 1; width: 32px; height: 32px;
+    display: grid; place-items: center; padding: 0; border: 0; border-radius: 8px;
+    background: transparent; color: var(--text-muted); cursor: pointer; }
+  .kebab:hover, .kebab:focus-visible { background: color-mix(in srgb, var(--card-color), white 12%);
+    color: var(--text-color); outline: none; }
+
+  /* Native popover; positioned next to the kebab in JS when it opens. */
+  #card-menu { position: fixed; inset: auto; margin: 0; padding: 4px; border: 0;
+    border-radius: var(--button-radius); background: var(--menu-color); color: var(--text-color);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 0.4); }
+  #card-menu button { display: block; width: 100%; padding: 10px 14px; border: 0;
+    border-radius: calc(var(--button-radius) - 4px); background: transparent;
+    color: inherit; font: inherit; font-size: 15px; text-align: left; cursor: pointer; white-space: nowrap; }
+  #card-menu button:hover, #card-menu button:focus-visible
+    { background: color-mix(in srgb, var(--menu-color), white 8%); outline: none; }
+
+  .note { margin: 12px 0 0; text-align: center; font-size: 13px; color: var(--text-muted); }
+  .note button { padding: 0; border: 0; background: none; font: inherit;
+    color: var(--text-color); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 </style>
 </head>
 <body>
 <main>
   <button id="eat" type="button">Let’s Eat!</button>
   <div id="result" aria-live="polite"></div>
+  <div id="card-menu" popover>
+    <button type="button" id="exclude">Exclude this entry</button>
+  </div>
 </main>
 
 <script>
 // Canonical list (see NOTES.md): open SF Business Registry locations, geocoded inside
 // SF city limits, holding a DPH restaurant permit (H24/H25/H26).
 const QUERY = "https://data.sf.gov/resource/g8m3-pdis.json?" + new URLSearchParams({
-  $select: "dba_name,full_business_address,lic,neighborhoods_analysis_boundaries",
+  $select: "ttxid,dba_name,full_business_address,lic,neighborhoods_analysis_boundaries",
   $where: "location_end_date IS NULL AND dba_end_date IS NULL" +
           " AND neighborhoods_analysis_boundaries IS NOT NULL" +
           " AND (lic like '%H24%' OR lic like '%H25%' OR lic like '%H26%')",
@@ -98,20 +130,21 @@ function curly(s) {
     .replace(/"/g, "”");                                      // any unpaired leftover
 }
 
+// One entry per name + address. A few places are two registry rows; the entry
+// keeps every row's location ID (ttxid) so excluding it covers all of them.
 function buildList(rows) {
-  const seen = new Set();
-  const list = [];
+  const byKey = new Map();
   for (const r of rows) {
     const raw = r.dba_name || "";
     if (!raw || MARKET_PERMIT.test(r.lic || "") || CONTRACT_CAFE.test(raw) || ADDRESS_AS_NAME.test(raw)) continue;
     const name = cleanName(raw);
     const address = (r.full_business_address || "").trim().replace(/\s+/g, " ");
     const key = (name + "|" + address).toUpperCase().replace(/[^A-Z0-9|]/g, "");
-    if (seen.has(key)) continue;
-    seen.add(key);
-    list.push({ key, name, address, hood: r.neighborhoods_analysis_boundaries });
+    const existing = byKey.get(key);
+    if (existing) { existing.ids.push(r.ttxid); continue; }
+    byKey.set(key, { key, ids: [r.ttxid], name, address, hood: r.neighborhoods_analysis_boundaries });
   }
-  return list;
+  return [...byKey.values()];
 }
 
 const listPromise = fetch(QUERY)
@@ -119,66 +152,134 @@ const listPromise = fetch(QUERY)
   .then(buildList);
 listPromise.then(l => console.log(`Loaded ${l.length} restaurants`)).catch(() => {});
 
-// No repeats until the tab closes: sessionStorage is per tab, survives reloads,
-// and is cleared when the tab closes. Once every restaurant has been shown, the
-// cycle restarts (skipping the one just shown so it can't appear twice in a row).
-// If storage is unavailable (blocked, private mode, data: URL), fall back to an
-// in-memory store: no repeats until reload instead of until the tab closes.
-const store = (() => {
+// Web storage, or an in-memory stand-in if it's unavailable (blocked, private
+// mode, data: URL). Then: no repeats until reload; exclusions until reload.
+function storage(kind) {
   try {
-    sessionStorage.setItem("_probe", "1");
-    sessionStorage.removeItem("_probe");
-    return sessionStorage;
+    const s = window[kind];
+    s.setItem("_probe", "1");
+    s.removeItem("_probe");
+    return s;
   } catch {
     const m = new Map();
     return { getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v)) };
   }
-})();
+}
+
+// No repeats until the tab closes: sessionStorage is per tab, survives reloads,
+// and is cleared when the tab closes. Once every restaurant has been shown, the
+// cycle restarts (skipping the one just shown so it can't appear twice in a row).
+const session = storage("sessionStorage");
 const SEEN = "seen", LAST = "last";
-const seen = new Set(JSON.parse(store.getItem(SEEN) || "[]"));
+const seen = new Set(JSON.parse(session.getItem(SEEN) || "[]"));
+
+// Exclusions are permanent on this device (localStorage), keyed by registry
+// location ID. Name and address are kept so a future list can show them.
+const local = storage("localStorage");
+const EXCLUDED = "excluded";
+const excluded = JSON.parse(local.getItem(EXCLUDED) || "{}");
+const saveExcluded = () => local.setItem(EXCLUDED, JSON.stringify(excluded));
+const isExcluded = p => p.ids.some(id => id in excluded);
+
+function exclude(p) {
+  const date = new Date().toLocaleDateString("en-CA"); // local YYYY-MM-DD
+  for (const id of p.ids) excluded[id] = { name: p.name, address: p.address, date };
+  saveExcluded();
+}
+function unexclude(p) {
+  for (const id of p.ids) delete excluded[id];
+  saveExcluded();
+}
 
 function pick(list) {
-  let pool = list.filter(p => !seen.has(p.key));
+  const active = list.filter(p => !isExcluded(p));
+  if (active.length === 0) return null;
+  let pool = active.filter(p => !seen.has(p.key));
   if (pool.length === 0) {
     seen.clear();
-    const last = store.getItem(LAST);
-    pool = list.length > 1 ? list.filter(p => p.key !== last) : list;
+    const last = session.getItem(LAST);
+    pool = active.length > 1 ? active.filter(p => p.key !== last) : active;
   }
   const p = pool[Math.floor(Math.random() * pool.length)];
   seen.add(p.key);
-  store.setItem(SEEN, JSON.stringify([...seen]));
-  store.setItem(LAST, p.key);
+  session.setItem(SEEN, JSON.stringify([...seen]));
+  session.setItem(LAST, p.key);
   return p;
 }
 
 const btn = document.getElementById("eat");
 const out = document.getElementById("result");
+const menu = document.getElementById("card-menu");
+let current = null;
 
-btn.addEventListener("click", async () => {
+const el = (tag, props = {}, ...children) => {
+  const e = Object.assign(document.createElement(tag), props);
+  e.append(...children);
+  return e;
+};
+
+function showMessage(text) {
+  current = null;
+  out.replaceChildren(el("div", { className: "card" }, text));
+}
+
+// Render a restaurant card, optionally with a note (and its Undo) below it.
+function show(p, note) {
+  current = p;
+  const link = el("a", {
+    className: "card-link",
+    href: "https://www.google.com/maps/search/?api=1&query=" +
+          encodeURIComponent(`${p.name}, ${p.address}, San Francisco, CA`),
+    target: "_blank",
+    rel: "noopener",
+  }, el("span", { className: "name" }, curly(p.name)), p.address, el("br"), p.hood || "");
+
+  const kebab = el("button", { type: "button", className: "kebab" });
+  kebab.setAttribute("aria-label", "More options");
+  kebab.setAttribute("popovertarget", "card-menu");
+  kebab.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
+    '<circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>';
+
+  out.replaceChildren(el("div", { className: "card" }, link, kebab), ...(note ? [note] : []));
+}
+
+async function next() {
   let list;
   try {
     list = await listPromise;
   } catch {
-    const msg = document.createElement("div");
-    msg.className = "card";
-    msg.textContent = "Couldn’t load restaurants. Reload to try again.";
-    out.replaceChildren(msg);
-    return;
+    return showMessage("Couldn’t load restaurants. Reload to try again.");
   }
   const p = pick(list);
+  if (!p) return showMessage("Every restaurant is excluded.");
+  show(p);
+  return p;
+}
 
-  // The whole card is the link to the map.
-  const card = document.createElement("a");
-  card.className = "card";
-  card.href = "https://www.google.com/maps/search/?api=1&query=" +
-              encodeURIComponent(`${p.name}, ${p.address}, San Francisco, CA`);
-  card.target = "_blank";
-  card.rel = "noopener";
-  const name = document.createElement("span");
-  name.className = "name";
-  name.textContent = curly(p.name);
-  card.replaceChildren(name, p.address, document.createElement("br"), p.hood || "");
-  out.replaceChildren(card);
+btn.addEventListener("click", next);
+
+// Place the menu under the kebab, right-aligned to it.
+menu.addEventListener("toggle", e => {
+  if (e.newState !== "open") return;
+  const k = out.querySelector(".kebab").getBoundingClientRect();
+  menu.style.top = `${k.bottom + 4}px`;
+  menu.style.left = `${k.right - menu.offsetWidth}px`;
+});
+
+document.getElementById("exclude").addEventListener("click", async () => {
+  menu.hidePopover();
+  const gone = current;
+  if (!gone) return;
+  exclude(gone);
+  const p = await next();
+  if (!p) return;
+
+  const undo = el("button", { type: "button" }, "Undo");
+  undo.addEventListener("click", () => {
+    unexclude(gone);
+    show(gone);
+  });
+  show(p, el("p", { className: "note" }, `Excluded ${curly(gone.name)} · `, undo));
 });
 </script>
 </body>
