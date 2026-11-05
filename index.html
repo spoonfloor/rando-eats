@@ -88,6 +88,7 @@
   <div id="result" aria-live="polite"></div>
   <div id="card-menu" popover>
     <button type="button" id="exclude">Exclude this entry</button>
+    <button type="button" id="reset-excluded">Reset exclude list</button>
   </div>
 </main>
 
@@ -190,6 +191,19 @@ function unexclude(p) {
   for (const id of p.ids) delete excluded[id];
   saveExcluded();
 }
+// Places, not IDs: a merged place has several IDs with the same name and address.
+const excludedCount = () => new Set(Object.values(excluded).map(e => e.name + "|" + e.address)).size;
+// Clears every exclusion; returns what was cleared so it can be restored.
+function resetExcluded() {
+  const snapshot = { ...excluded };
+  for (const id in excluded) delete excluded[id];
+  saveExcluded();
+  return snapshot;
+}
+function restoreExcluded(snapshot) {
+  Object.assign(excluded, snapshot);
+  saveExcluded();
+}
 
 function pick(list) {
   const active = list.filter(p => !isExcluded(p));
@@ -262,7 +276,7 @@ btn.addEventListener("click", next);
 menu.addEventListener("toggle", e => {
   if (e.newState !== "open") return;
   const k = out.querySelector(".kebab").getBoundingClientRect();
-  menu.style.top = `${k.bottom + 4}px`;
+  menu.style.top = `${k.bottom + 8}px`;
   menu.style.left = `${k.right - menu.offsetWidth}px`;
 });
 
@@ -280,6 +294,23 @@ document.getElementById("exclude").addEventListener("click", async () => {
     show(gone);
   });
   show(p, el("p", { className: "note" }, `Excluded ${curly(gone.name)} · `, undo));
+});
+
+document.getElementById("reset-excluded").addEventListener("click", () => {
+  menu.hidePopover();
+  const p = current;
+  if (!p) return;
+  const count = excludedCount();
+  if (count === 0) return show(p, el("p", { className: "note" }, "Nothing is excluded"));
+
+  const snapshot = resetExcluded();
+  const undo = el("button", { type: "button" }, "Undo");
+  undo.addEventListener("click", () => {
+    restoreExcluded(snapshot);
+    show(p);
+  });
+  const label = count === 1 ? "Cleared 1 exclusion · " : `Cleared ${count} exclusions · `;
+  show(p, el("p", { className: "note" }, label, undo));
 });
 </script>
 </body>
