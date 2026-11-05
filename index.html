@@ -272,6 +272,16 @@ async function next() {
 
 btn.addEventListener("click", next);
 
+// Clicking blank space hides the card. If the menu was open, that click only
+// closes the menu (the popover dismisses itself), so remember its state first.
+let menuWasOpen = false;
+document.addEventListener("pointerdown", () => { menuWasOpen = menu.matches(":popover-open"); }, true);
+document.querySelector("main").addEventListener("click", e => {
+  if (menuWasOpen || e.target.closest("#eat, #result, #card-menu")) return;
+  current = null;
+  out.replaceChildren();
+});
+
 // Place the menu under the kebab, right-aligned to it.
 menu.addEventListener("toggle", e => {
   if (e.newState !== "open") return;
