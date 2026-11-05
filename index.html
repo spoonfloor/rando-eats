@@ -97,6 +97,43 @@
   #stats dt { order: 2; color: var(--text-muted); }
   #stats dd { order: 1; margin: 0; min-width: 3.5em; font-weight: 500; font-variant-numeric: tabular-nums; }
 
+  /* Search: the field takes the button’s exact spot; suggestions or results hang below
+     it in a panel that stops just short of the bottom of the window and scrolls. */
+  #search { position: absolute; left: 50%; top: calc(50% - var(--lift)); transform: translate(-50%, -50%);
+    width: var(--content-width); box-sizing: border-box; display: flex; align-items: center; gap: 2px;
+    padding: 0 8px 0 18px; border-radius: var(--button-radius); background: var(--card-color);
+    box-shadow: inset 0 0 0 1.5px var(--theme-color); }
+  #search[hidden] { display: none; }
+  #search input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; outline: none;
+    background: transparent; color: var(--text-color); font: inherit; font-size: 18px; }
+  #search input::placeholder { color: var(--text-muted); }
+  #search .icon-btn[hidden] { display: none; }
+
+  #search-panel { position: absolute; left: 50%; top: calc(50% - var(--lift) + 52px); transform: translateX(-50%);
+    width: var(--content-width); max-height: calc(50% + var(--lift) - 52px - 24px); overflow-y: auto;
+    overscroll-behavior: contain; }
+  #search-panel:empty { display: none; }
+  .suggestions { margin: 0; padding: 4px; list-style: none; border-radius: var(--button-radius);
+    background: var(--menu-color); }
+  .suggestions li { display: flex; gap: 12px; justify-content: space-between; padding: 10px 14px;
+    border-radius: calc(var(--button-radius) - 4px); font-size: 15px; cursor: pointer; }
+  .suggestions li[aria-selected="true"], .suggestions li:hover
+    { background: color-mix(in srgb, var(--menu-color), white 8%); }
+  .suggestions .count { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .hits { display: grid; gap: 8px; }
+  .hit { display: block; width: 100%; padding: 14px 16px; border: 0; border-radius: var(--card-radius);
+    background: var(--card-color); color: var(--text-muted); font: inherit; font-size: 14px;
+    line-height: 1.45; text-align: left; }
+  button.hit { cursor: pointer; }
+  button.hit:hover, button.hit:focus-visible { background: color-mix(in srgb, var(--card-color), white 6%); outline: none; }
+  .hit .name { display: block; color: var(--text-color); font-size: 16px; font-weight: 500; }
+  .hit .tag { margin-left: 6px; padding: 1px 6px; border-radius: 4px; vertical-align: 1px;
+    background: color-mix(in srgb, var(--card-color), white 12%); color: var(--text-muted);
+    font-size: 12px; font-weight: 500; }
+  .hit .why { display: block; margin-top: 4px; color: var(--text-color); }
+  .panel-note { margin: 0 0 8px; text-align: center; font-size: 13px; color: var(--text-muted); }
+  .hits + .panel-note { margin: 8px 0 0; }
+
   .note { margin: 12px 0 0; text-align: center; font-size: 13px; color: var(--text-muted); }
   .note button { padding: 0; border: 0; background: none; font: inherit;
     color: var(--text-color); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
@@ -106,6 +143,21 @@
 <main>
   <button id="eat" type="button">Let’s Eat!</button>
   <div id="result" aria-live="polite"></div>
+  <form id="search" role="search" hidden>
+    <input id="search-input" type="text" placeholder="Search restaurants" aria-label="Search restaurants"
+           role="combobox" aria-autocomplete="list" aria-controls="search-panel" aria-expanded="false"
+           autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search">
+    <button type="button" class="icon-btn" id="search-clear" aria-label="Clear search" hidden>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+    <button type="submit" class="icon-btn" aria-label="Search">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M19 5v6a4 4 0 0 1-4 4H5"/><path d="M9 10l-5 5 5 5"/></svg>
+    </button>
+  </form>
+  <div id="search-panel" aria-live="polite"></div>
 </main>
 
 <button type="button" id="page-kebab" class="icon-btn" aria-label="Menu" popovertarget="page-menu">
@@ -113,6 +165,7 @@
     <circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
 </button>
 <div id="page-menu" class="menu" popover>
+  <button type="button" id="search-open">Search</button>
   <button type="button" id="show-stats">Show stats</button>
   <button type="button" id="reset-seen">Clear viewed</button>
   <button type="button" id="reset-excluded">Clear excluded</button>
@@ -352,9 +405,13 @@ document.addEventListener("pointerdown", () => {
   menuWasOpen = cardMenu.matches(":popover-open") || pageMenu.matches(":popover-open");
 }, true);
 document.querySelector("main").addEventListener("click", e => {
-  // Use the path captured at dispatch: an Undo re-renders the card, which
-  // detaches the clicked button before this handler runs.
-  if (menuWasOpen || e.composedPath().some(n => n === btn || n === out)) return;
+  if (menuWasOpen) return;
+  // Use the path captured at dispatch: an Undo re-renders the card, and picking
+  // a search result closes the panel, both detaching the clicked node first.
+  const path = e.composedPath();
+  if (path.some(n => n === searchForm || n === searchPanel)) return;
+  if (searching()) return closeSearch();
+  if (path.some(n => n === btn || n === out)) return;
   current = null;
   out.replaceChildren();
 });
@@ -449,6 +506,303 @@ statsDialog.addEventListener("click", e => {
   const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
   if (!inside) statsDialog.close();
 });
+
+// ── Search ─────────────────────────────────────────────────────────────────
+// A sanity check on the list: is a place I know about on it? Typing shows compact
+// suggestions; Enter shows every match as a card. With no match, the full city
+// registry is checked live to say why the place didn’t make the list.
+
+const searchForm = document.getElementById("search");
+const searchInput = document.getElementById("search-input");
+const searchClear = document.getElementById("search-clear");
+const searchPanel = document.getElementById("search-panel");
+const searching = () => !searchForm.hidden;
+
+// Lowercase, no accents or apostrophes, other punctuation as spaces:
+// "Mel’s Café" → "mels cafe".
+const norm = s => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase()
+  .replace(/['’‘`]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+
+// Edit distance, giving up once it exceeds max.
+function within(a, b, max) {
+  if (Math.abs(a.length - b.length) > max) return false;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const row = [i];
+    for (let j = 1; j <= b.length; j++)
+      row[j] = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    if (Math.min(...row) > max) return false;
+    prev = row;
+  }
+  return prev[b.length] <= max;
+}
+// A query word matches a name word if it starts it, allowing a typo once it’s
+// long enough to mean something (1 from 4 letters, 2 from 7).
+function fuzzyWord(q, words) {
+  const max = q.length >= 7 ? 2 : q.length >= 4 ? 1 : 0;
+  // Compare against the word’s opening at a few lengths, so a dropped or added
+  // letter (“tartne”) still lines up with “tartine”.
+  return words.some(w => w.startsWith(q) || (max > 0 &&
+    Array.from({ length: 2 * max + 1 }, (_, i) => q.length - max + i)
+      .some(len => len > 0 && len <= w.length && within(q, w.slice(0, len), max))));
+}
+
+// Lower is better; null means no match.
+function score(entry, q, qWords) {
+  if (entry.normName.startsWith(q)) return 0;
+  if (qWords.every(t => entry.nameWords.some(w => w.startsWith(t)))) return 1;
+  if (entry.normName.includes(q)) return 2;
+  if (entry.normAddr.startsWith(q) || entry.normAddr.includes(" " + q)) return 3;
+  if (qWords.every(t => fuzzyWord(t, entry.nameWords))) return 4;
+  return null;
+}
+
+const byName = (a, b) => a.localeCompare(b, "en", { numeric: true, sensitivity: "base" });
+let indexed = null;
+async function searchIndex() {
+  if (indexed) return indexed;
+  const list = await listPromise;
+  return indexed = list.map(p => {
+    const normName = norm(p.name);
+    return { p, normName, nameWords: normName.split(" "), normAddr: norm(p.address) };
+  });
+}
+async function matches(query) {
+  const q = norm(query);
+  if (!q) return [];
+  const qWords = q.split(" ");
+  let hits = [];
+  for (const e of await searchIndex()) {
+    const s = score(e, q, qWords);
+    if (s !== null) hits.push({ p: e.p, s });
+  }
+  // Typo matches only when nothing matches as typed: otherwise “tartine”
+  // would bring along Kantine and Golden Sardine.
+  if (hits.some(h => h.s < 4)) hits = hits.filter(h => h.s < 4);
+  return hits.sort((a, b) => a.s - b.s || byName(a.p.name, b.p.name)); // [{ p, s }]
+}
+
+// Chains share a name apart from a store number ("Starbucks Coffee #6605"), so
+// suggestions group them as one family with a count. Once the field holds a
+// family’s name exactly, that family opens up into its individual names.
+// Within a match tier, bigger groups come first: “sta” leads with Starbucks.
+const family = name => name.replace(/\s*#\s*\d+\s*$/, "");
+function suggestionsFor(query, hits) {
+  const q = norm(query);
+  const groups = new Map();
+  for (const { p, s } of hits) {
+    const label = norm(family(p.name)) === q ? p.name : family(p.name);
+    const g = groups.get(label) || groups.set(label, { label, count: 0, s }).get(label);
+    g.count++;
+  }
+  return [...groups.values()]
+    .sort((a, b) => a.s - b.s || b.count - a.count || byName(a.label, b.label))
+    .slice(0, 8);
+}
+
+let suggestions = [];
+let active = -1;   // highlighted suggestion, or -1
+let searchRun = 0; // drops results from a superseded keystroke or query
+
+function renderSuggestions() {
+  if (!suggestions.length) {
+    searchInput.setAttribute("aria-expanded", "false");
+    searchInput.removeAttribute("aria-activedescendant");
+    return searchPanel.replaceChildren();
+  }
+  const ul = el("ul", { className: "suggestions", role: "listbox" });
+  suggestions.forEach((sg, i) => {
+    const li = el("li", { id: `sg-${i}`, role: "option" }, el("span", {}, curly(sg.label)));
+    if (sg.count > 1) li.append(el("span", { className: "count" }, fmt(sg.count)));
+    li.setAttribute("aria-selected", String(i === active));
+    li.addEventListener("pointerdown", e => e.preventDefault()); // keep focus in the field
+    li.addEventListener("click", () => accept(sg));
+    ul.append(li);
+  });
+  searchPanel.replaceChildren(ul);
+  searchInput.setAttribute("aria-expanded", "true");
+  if (active >= 0) searchInput.setAttribute("aria-activedescendant", `sg-${active}`);
+  else searchInput.removeAttribute("aria-activedescendant");
+}
+
+async function updateSuggestions() {
+  const run = ++searchRun;
+  const query = searchInput.value;
+  searchClear.hidden = !query;
+  let hits = [];
+  try { hits = await matches(query); } catch {}
+  if (run !== searchRun) return;
+  suggestions = suggestionsFor(query, hits);
+  active = -1;
+  renderSuggestions();
+}
+
+// Put a suggestion in the field and narrow from there.
+function accept(sg) {
+  searchInput.value = sg.label;
+  searchInput.focus();
+  updateSuggestions();
+}
+
+const RESULT_CAP = 100;
+async function showResults(query) {
+  const run = ++searchRun;
+  suggestions = [];
+  renderSuggestions();
+  if (!norm(query)) return;
+  let hits;
+  try { hits = await matches(query); }
+  catch { return searchPanel.replaceChildren(el("p", { className: "panel-note" }, "Couldn’t load restaurants.")); }
+  if (run !== searchRun) return;
+  if (!hits.length) return diagnose(query, run);
+
+  const cards = hits.slice(0, RESULT_CAP).map(({ p }) => {
+    const name = el("span", { className: "name" }, curly(p.name));
+    if (isExcluded(p)) name.append(el("span", { className: "tag" }, "Excluded"));
+    const card = el("button", { type: "button", className: "hit" }, name, p.address, el("br"), p.hood || "");
+    card.addEventListener("click", () => { closeSearch(); show(p); });
+    return card;
+  });
+  const count = hits.length === 1 ? "1 match" : `${fmt(hits.length)} matches`;
+  searchPanel.replaceChildren(
+    el("p", { className: "panel-note" }, count),
+    el("div", { className: "hits" }, ...cards),
+    ...(hits.length > RESULT_CAP
+      ? [el("p", { className: "panel-note" }, `Showing the first ${RESULT_CAP}. Keep typing to narrow it down.`)]
+      : []));
+  searchPanel.scrollTop = 0;
+}
+
+// ── Not on the list: ask the full registry why ──────────────────────────────
+
+// DPH permit codes that explain why a place isn’t on a restaurants-only list.
+const PERMITS = [
+  [/^H0[3-9]$|^H8[0-3]$/, "market"], [/^H28$/, "take-out"], [/^H29$/, "fast food"],
+  [/^H86$/, "bar, no food"], [/^H87$/, "bar with food"], [/^H88$/, "bakery"],
+  [/^H30$|^H74$|^J07$/, "caterer"], [/^H8[45]$/, "employee cafeteria"],
+  [/^H9[01]$/, "school cafeteria"], [/^H36$/, "stadium concession"],
+];
+const permitLabel = code => (PERMITS.find(([re]) => re.test(code)) || [, null])[1];
+const monthYear = d => new Date(d).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+
+function whyMissing(r) {
+  const end = r.location_end_date || r.dba_end_date;
+  if (end) return `Closed ${monthYear(end)}`;
+  if (!r.neighborhoods_analysis_boundaries) return "Not geocoded inside SF";
+  // Health permits are the H/J codes; an R suffix is a renewal of the same permit.
+  const codes = [...new Set((r.lic || "").split(/\s+/).filter(c => /^[HJ]\d/.test(c)).map(c => c.replace(/R$/, "")))];
+  if (!codes.some(c => /^H2[456]$/.test(c))) {
+    if (!codes.length) return "No food permit on file";
+    return "Permit " + codes.map(c => permitLabel(c) ? `${c} (${permitLabel(c)})` : c).join(", ") +
+      ", not a restaurant permit";
+  }
+  if (MARKET_PERMIT.test(r.lic)) return "Also holds a market permit, filtered out";
+  if (CONTRACT_CAFE.test(r.dba_name)) return "Looks like a contract café, filtered out";
+  if (ADDRESS_AS_NAME.test(r.dba_name)) return "Name is an address, filtered out";
+  return "Should be on the list. Search missed it.";
+}
+
+async function diagnose(query, run) {
+  const notOnList = el("p", { className: "panel-note" }, "Not on the list. Checking the city registry…");
+  searchPanel.replaceChildren(notOnList);
+  // Every word must appear in the name. Dropping a final s means “mels” still
+  // finds MEL’S, since the registry can’t ignore apostrophes the way we do.
+  const words = norm(query).split(" ").filter(w => w.length >= 2).map(w => w.length > 3 ? w.replace(/s$/, "") : w);
+  if (!words.length) return (notOnList.textContent = "Not on the list, or in the city registry.");
+  const url = "https://data.sf.gov/resource/g8m3-pdis.json?" + new URLSearchParams({
+    $select: "dba_name,full_business_address,lic,location_end_date,dba_end_date,neighborhoods_analysis_boundaries",
+    $where: words.map(w => `upper(dba_name) like '%${w.toUpperCase()}%'`).join(" AND "),
+    $limit: "200",
+  });
+  let rows;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(res.status);
+    rows = await res.json();
+  } catch {
+    if (run === searchRun) notOnList.textContent = "Not on the list. Couldn’t reach the city registry.";
+    return;
+  }
+  if (run !== searchRun) return;
+  if (!rows.length) return (notOnList.textContent = "Not on the list, or in the city registry.");
+
+  // One row per name + address, open locations first, then the most recently closed.
+  const end = r => r.location_end_date || r.dba_end_date || "9999";
+  const seenKeys = new Set();
+  const unique = rows.sort((a, b) => end(b).localeCompare(end(a))).filter(r => {
+    const k = norm((r.dba_name || "") + "|" + (r.full_business_address || ""));
+    return !seenKeys.has(k) && seenKeys.add(k);
+  });
+  const shown = unique.slice(0, 5).map(r => el("div", { className: "hit" },
+    el("span", { className: "name" }, curly(cleanName(r.dba_name || ""))),
+    (r.full_business_address || "").trim(), r.neighborhoods_analysis_boundaries ? ", " + r.neighborhoods_analysis_boundaries : "",
+    el("span", { className: "why" }, whyMissing(r))));
+  notOnList.textContent = "Not on the list. In the city registry:";
+  searchPanel.replaceChildren(notOnList, el("div", { className: "hits" }, ...shown),
+    ...(unique.length > 5 ? [el("p", { className: "panel-note" }, `And ${fmt(unique.length - 5)} more. Add words to narrow it down.`)] : []));
+}
+
+// ── Opening, closing, keys ─────────────────────────────────────────────────
+
+function openSearch() {
+  if (!searching()) {
+    searchForm.style.height = `${btn.offsetHeight}px`; // same footprint as the button
+    btn.hidden = out.hidden = true;
+    searchForm.hidden = false;
+  }
+  searchInput.focus();
+  searchInput.select();
+}
+function closeSearch() {
+  if (!searching()) return;
+  ++searchRun;
+  searchForm.hidden = true;
+  btn.hidden = out.hidden = false;
+  searchInput.value = "";
+  searchClear.hidden = true;
+  suggestions = [];
+  renderSuggestions();
+}
+
+document.getElementById("search-open").addEventListener("click", () => {
+  pageMenu.hidePopover();
+  openSearch();
+});
+// Any other page-menu item closes the search.
+pageMenu.addEventListener("click", e => {
+  const item = e.target.closest("button");
+  if (item && item.id !== "search-open") closeSearch();
+});
+
+searchInput.addEventListener("input", updateSuggestions);
+searchClear.addEventListener("click", () => {
+  searchInput.value = "";
+  searchInput.focus();
+  updateSuggestions();
+});
+searchForm.addEventListener("submit", e => {
+  e.preventDefault();
+  const query = active >= 0 ? suggestions[active].label : searchInput.value;
+  searchInput.value = query;
+  showResults(query);
+});
+searchInput.addEventListener("keydown", e => {
+  if ((e.key === "ArrowDown" || e.key === "ArrowUp") && suggestions.length) {
+    e.preventDefault();
+    const n = suggestions.length;
+    active = e.key === "ArrowDown" ? (active + 1) % n : (active <= 0 ? n : active) - 1;
+    renderSuggestions();
+  } else if (e.key === "Tab" && !e.shiftKey && suggestions.length) {
+    e.preventDefault();
+    accept(suggestions[Math.max(active, 0)]);
+  }
+});
+// Escape closes the search, unless it’s closing a menu that’s open over it.
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape" || !searching()) return;
+  if (pageMenu.matches(":popover-open") || cardMenu.matches(":popover-open")) return;
+  closeSearch();
+}, true);
 </script>
 </body>
 </html>
