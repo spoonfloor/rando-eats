@@ -45,6 +45,9 @@
     border-radius: var(--button-radius); background: var(--button-color);
     color: var(--button-text-color); cursor: pointer; white-space: nowrap; }
   #eat:active { transform: translate(-50%, -50%) scale(0.97); }
+  /* Both take a long press: no iOS callout, text selection or double-tap zoom. */
+  #eat, #page-kebab { touch-action: manipulation; -webkit-touch-callout: none;
+    -webkit-user-select: none; user-select: none; }
 
   #result { position: absolute; left: 50%; top: calc(50% - var(--lift) + 52px); transform: translateX(-50%);
     width: var(--content-width); }
@@ -68,8 +71,7 @@
     color: var(--text-color); outline: none; }
   .card .icon-btn { position: absolute; top: 4px; right: 4px; z-index: 1; }
   /* Page menu: fixed top-right, clear of the notch / home indicator when installed. */
-  #page-kebab { position: fixed; z-index: 1; touch-action: manipulation;
-    -webkit-touch-callout: none; -webkit-user-select: none; user-select: none;
+  #page-kebab { position: fixed; z-index: 1;
     top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); }
 
   /* Native popovers; positioned under their trigger in JS when they open. */
@@ -393,7 +395,38 @@ async function next() {
   return p;
 }
 
-btn.addEventListener("click", next);
+// Calls onLong once a press on el has been held for LONG_PRESS_MS, without
+// waiting for release. The click that ends the press is swallowed wherever it
+// lands: onLong may have hidden el, so the release can fall on something else.
+const LONG_PRESS_MS = 500;
+function longPress(el, onLong) {
+  let timer = null;
+  // The guard lasts until it eats that click, or until the next press or key
+  // (on touch the click can arrive well after the finger lifts, or not at all).
+  const swallow = e => { e.preventDefault(); e.stopImmediatePropagation(); disarm(); };
+  const disarm = () => {
+    window.removeEventListener("click", swallow, true);
+    window.removeEventListener("pointerdown", disarm, true);
+    window.removeEventListener("keydown", disarm, true);
+  };
+  el.addEventListener("pointerdown", e => {
+    if (e.button !== 0) return;
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      window.addEventListener("click", swallow, true);
+      window.addEventListener("pointerdown", disarm, true);
+      window.addEventListener("keydown", disarm, true);
+      onLong();
+    }, LONG_PRESS_MS);
+  });
+  for (const type of ["pointerup", "pointerleave", "pointercancel"])
+    el.addEventListener(type, () => clearTimeout(timer));
+  el.addEventListener("contextmenu", e => e.preventDefault()); // touch long press
+}
+
+// Let’s Eat! picks; a long press or Option-click opens search instead.
+btn.addEventListener("click", e => e.altKey ? openSearch() : next());
+longPress(btn, openSearch);
 
 // Menus open under their trigger, right-aligned to it.
 function anchorMenu(menu, trigger) {
@@ -412,30 +445,18 @@ anchorMenu(pageMenu, () => kebab);
 // debug tools. The button keeps popovertarget so the browser treats it as part
 // of the menu (releasing a long press over it doesn’t count as a click outside,
 // which would close the menu), but its click is cancelled so this code decides
-// what opens.
-const LONG_PRESS_MS = 500;
+// what opens. longPress() is defined with the Let’s Eat! button above.
 const debugItems = document.getElementById("debug-items");
-let pressTimer = null, longPressed = false;
 function openPageMenu(debug) {
   debugItems.hidden = !debug;
   pageMenu.showPopover();
 }
-kebab.addEventListener("pointerdown", e => {
-  if (e.button !== 0) return;
-  longPressed = false;
-  clearTimeout(pressTimer);
-  pressTimer = setTimeout(() => {
-    longPressed = true;
-    if (pageMenu.matches(":popover-open")) pageMenu.hidePopover();
-    openPageMenu(true);
-  }, LONG_PRESS_MS);
+longPress(kebab, () => {
+  if (pageMenu.matches(":popover-open")) pageMenu.hidePopover();
+  openPageMenu(true);
 });
-for (const type of ["pointerup", "pointerleave", "pointercancel"])
-  kebab.addEventListener(type, () => clearTimeout(pressTimer));
-kebab.addEventListener("contextmenu", e => e.preventDefault()); // touch long press
 kebab.addEventListener("click", e => {
   e.preventDefault(); // skip the built-in toggle
-  if (longPressed) { longPressed = false; return; } // the long press already opened it
   if (pageMenu.matches(":popover-open")) pageMenu.hidePopover();
   else openPageMenu(e.altKey);
 });
@@ -453,9 +474,10 @@ document.querySelector("main").addEventListener("click", e => {
   // Use the path captured at dispatch: an Undo re-renders the card, and picking
   // a search result closes the panel, both detaching the clicked node first.
   const path = e.composedPath();
-  if (path.some(n => n === searchForm || n === searchPanel)) return;
+  // The button and card handle their own clicks; Option-clicking the button
+  // opens search, which this click must not then close.
+  if (path.some(n => n === searchForm || n === searchPanel || n === btn || n === out)) return;
   if (searching()) return closeSearch();
-  if (path.some(n => n === btn || n === out)) return;
   current = null;
   out.replaceChildren();
 });
