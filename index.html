@@ -68,7 +68,8 @@
     color: var(--text-color); outline: none; }
   .card .icon-btn { position: absolute; top: 4px; right: 4px; z-index: 1; }
   /* Page menu: fixed top-right, clear of the notch / home indicator when installed. */
-  #page-kebab { position: fixed; z-index: 1;
+  #page-kebab { position: fixed; z-index: 1; touch-action: manipulation;
+    -webkit-touch-callout: none; -webkit-user-select: none; user-select: none;
     top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); }
 
   /* Native popovers; positioned under their trigger in JS when they open. */
@@ -81,6 +82,7 @@
   .menu button:enabled:hover, .menu button:focus-visible
     { background: color-mix(in srgb, var(--menu-color), white 8%); outline: none; }
   .menu button:disabled { color: var(--text-muted); opacity: 0.6; cursor: default; }
+  .menu hr { margin: 4px 10px; border: 0; height: 1px; background: color-mix(in srgb, var(--menu-color), white 10%); }
 
   /* Stats modal: a native <dialog> (focus, Escape, screen readers) restyled to match the card. */
   #stats { width: var(--content-width); box-sizing: border-box; margin: auto; padding: 8px 20px 18px;
@@ -100,7 +102,7 @@
   /* Search: the field takes the button’s exact spot; suggestions or results hang below
      it in a panel that stops just short of the bottom of the window and scrolls. */
   #search { position: absolute; left: 50%; top: calc(50% - var(--lift)); transform: translate(-50%, -50%);
-    width: var(--content-width); box-sizing: border-box; display: flex; align-items: center; gap: 2px;
+    width: var(--content-width); height: var(--control-height); box-sizing: border-box; display: flex; align-items: center; gap: 2px;
     padding: 0 8px 0 18px; border-radius: var(--button-radius); background: var(--card-color);
     box-shadow: inset 0 0 0 1.5px var(--theme-color); }
   #search[hidden] { display: none; }
@@ -109,9 +111,14 @@
   #search input::placeholder { color: var(--text-muted); }
   #search .icon-btn[hidden] { display: none; }
 
-  #search-panel { position: absolute; left: 50%; top: calc(50% - var(--lift) + 52px); transform: translateX(-50%);
-    width: var(--content-width); max-height: calc(50% + var(--lift) - 52px - 24px); overflow-y: auto;
-    overscroll-behavior: contain; }
+  /* --control-height is the button’s rendered height, set in JS when search opens. */
+  #search-panel { --gap: 8px; position: absolute; left: 50%; transform: translateX(-50%);
+    top: calc(50% - var(--lift) + var(--control-height) / 2 + var(--gap));
+    width: var(--content-width); max-height: calc(50% + var(--lift) - var(--control-height) / 2 - var(--gap) - 24px);
+    overflow-y: auto; overscroll-behavior: contain; }
+  /* Once scrolled, cards fade out under the top edge instead of being sliced off. */
+  #search-panel.scrolled { mask-image: linear-gradient(to bottom, transparent, black 12px);
+    -webkit-mask-image: linear-gradient(to bottom, transparent, black 12px); }
   #search-panel:empty { display: none; }
   .suggestions { margin: 0; padding: 4px; list-style: none; border-radius: var(--button-radius);
     background: var(--menu-color); }
@@ -160,15 +167,20 @@
   <div id="search-panel" aria-live="polite"></div>
 </main>
 
-<button type="button" id="page-kebab" class="icon-btn" aria-label="Menu" popovertarget="page-menu">
+<button type="button" id="page-kebab" class="icon-btn" aria-label="Menu" aria-haspopup="menu"
+        aria-controls="page-menu" aria-expanded="false">
   <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
     <circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
 </button>
 <div id="page-menu" class="menu" popover>
-  <button type="button" id="search-open">Search</button>
   <button type="button" id="show-stats">Show stats</button>
   <button type="button" id="reset-seen">Clear viewed</button>
   <button type="button" id="reset-excluded">Clear excluded</button>
+  <!-- Debug tools: shown on Option-click or a long press of the menu button. -->
+  <div id="debug-items" hidden>
+    <hr>
+    <button type="button" id="search-open">Search</button>
+  </div>
 </div>
 <div id="card-menu" class="menu" popover>
   <button type="button" id="exclude">Exclude this entry</button>
@@ -203,7 +215,7 @@ const QUERY = "https://data.sf.gov/resource/g8m3-pdis.json?" + new URLSearchPara
 
 // Places that hold a restaurant permit but aren't somewhere the public goes to eat.
 const MARKET_PERMIT = /\bH0[3-9]R?\b|\bH8[0-3]R?\b/;              // also a grocery/supermarket
-const CONTRACT_CAFE = /@|\b(sodexo|aramark|guckenheimer|levy restaurants|events mgmt|employee)\b/i;
+const CONTRACT_CAFE = /@|\b(sodexo|aramark|guckenheimer|levy restaurants|events mgmt|employee|flik|culinart|eurest dining)\b/i;
 const ADDRESS_AS_NAME = /^\d+\s.*\b(llc|inc|corp|corporation|lp|ltd)\b/i;
 
 function cleanName(name) {
@@ -394,7 +406,38 @@ function anchorMenu(menu, trigger) {
   });
 }
 anchorMenu(cardMenu, () => out.querySelector(".card .icon-btn"));
-anchorMenu(pageMenu, () => document.getElementById("page-kebab"));
+const kebab = document.getElementById("page-kebab");
+anchorMenu(pageMenu, () => kebab);
+
+// The page menu button opens the menu itself (no popovertarget) so it can tell
+// a plain click from Option-click or a long press, which add the debug tools.
+const LONG_PRESS_MS = 500;
+const debugItems = document.getElementById("debug-items");
+let pressTimer = null, longPressed = false, pageMenuWasOpen = false;
+function openPageMenu(debug) {
+  debugItems.hidden = !debug;
+  pageMenu.showPopover();
+}
+pageMenu.addEventListener("toggle", e => kebab.setAttribute("aria-expanded", String(e.newState === "open")));
+kebab.addEventListener("pointerdown", e => {
+  if (e.button !== 0) return;
+  pageMenuWasOpen = pageMenu.matches(":popover-open"); // this press light-dismisses it
+  longPressed = false;
+  clearTimeout(pressTimer);
+  pressTimer = setTimeout(() => {
+    longPressed = true;
+    if (pageMenu.matches(":popover-open")) pageMenu.hidePopover();
+    openPageMenu(true);
+  }, LONG_PRESS_MS);
+});
+for (const type of ["pointerup", "pointerleave", "pointercancel"])
+  kebab.addEventListener(type, () => clearTimeout(pressTimer));
+kebab.addEventListener("contextmenu", e => e.preventDefault()); // touch long press
+kebab.addEventListener("click", e => {
+  if (longPressed) { longPressed = false; return; }   // the long press already opened it
+  if (pageMenuWasOpen) { pageMenuWasOpen = false; return; } // a click on the button closes it
+  openPageMenu(e.altKey);
+});
 
 // Clicking blank space hides the card. If a menu was open, that click only
 // closes the menu (popovers dismiss themselves), so remember its state first.
@@ -517,6 +560,8 @@ const searchInput = document.getElementById("search-input");
 const searchClear = document.getElementById("search-clear");
 const searchPanel = document.getElementById("search-panel");
 const searching = () => !searchForm.hidden;
+const main = document.querySelector("main");
+searchPanel.addEventListener("scroll", () => searchPanel.classList.toggle("scrolled", searchPanel.scrollTop > 0));
 
 // Lowercase, no accents or apostrophes, other punctuation as spaces:
 // "Mel’s Café" → "mels cafe".
@@ -592,8 +637,9 @@ function suggestionsFor(query, hits) {
   const groups = new Map();
   for (const { p, s } of hits) {
     const label = norm(family(p.name)) === q ? p.name : family(p.name);
-    const g = groups.get(label) || groups.set(label, { label, count: 0, s }).get(label);
+    const g = groups.get(label) || groups.set(label, { label, count: 0, s, hits: [] }).get(label);
     g.count++;
+    g.hits.push({ p, s });
   }
   return [...groups.values()]
     .sort((a, b) => a.s - b.s || b.count - a.count || byName(a.label, b.label))
@@ -633,25 +679,33 @@ async function updateSuggestions() {
   try { hits = await matches(query); } catch {}
   if (run !== searchRun) return;
   suggestions = suggestionsFor(query, hits);
+  // A lone suggestion that just repeats the field adds nothing.
+  if (suggestions.length === 1 && suggestions[0].count === 1 && norm(suggestions[0].label) === norm(query))
+    suggestions = [];
   active = -1;
   renderSuggestions();
 }
 
 // Put a suggestion in the field and narrow from there.
+// A chain opens up into its stores; a single place (or a group the field
+// already names, so there’s nothing left to narrow) goes straight to its card.
 function accept(sg) {
+  const narrowed = norm(sg.label) === norm(searchInput.value);
   searchInput.value = sg.label;
   searchInput.focus();
-  updateSuggestions();
+  if (sg.count === 1 || narrowed) showResults(sg.label, sg.hits);
+  else updateSuggestions();
 }
 
 const RESULT_CAP = 100;
-async function showResults(query) {
+// Every match for the query, or just the places in an accepted suggestion.
+async function showResults(query, chosen) {
   const run = ++searchRun;
   suggestions = [];
   renderSuggestions();
   if (!norm(query)) return;
   let hits;
-  try { hits = await matches(query); }
+  try { hits = chosen || await matches(query); }
   catch { return searchPanel.replaceChildren(el("p", { className: "panel-note" }, "Couldn’t load restaurants.")); }
   if (run !== searchRun) return;
   if (!hits.length) return diagnose(query, run);
@@ -671,6 +725,7 @@ async function showResults(query) {
       ? [el("p", { className: "panel-note" }, `Showing the first ${RESULT_CAP}. Keep typing to narrow it down.`)]
       : []));
   searchPanel.scrollTop = 0;
+  searchPanel.classList.remove("scrolled");
 }
 
 // ── Not on the list: ask the full registry why ──────────────────────────────
@@ -746,7 +801,7 @@ async function diagnose(query, run) {
 
 function openSearch() {
   if (!searching()) {
-    searchForm.style.height = `${btn.offsetHeight}px`; // same footprint as the button
+    main.style.setProperty("--control-height", `${btn.offsetHeight}px`); // same footprint as the button
     btn.hidden = out.hidden = true;
     searchForm.hidden = false;
   }
@@ -782,9 +837,10 @@ searchClear.addEventListener("click", () => {
 });
 searchForm.addEventListener("submit", e => {
   e.preventDefault();
-  const query = active >= 0 ? suggestions[active].label : searchInput.value;
-  searchInput.value = query;
-  showResults(query);
+  // Enter on a highlighted suggestion shows that suggestion’s places.
+  const sg = active >= 0 ? suggestions[active] : null;
+  if (sg) searchInput.value = sg.label;
+  showResults(searchInput.value, sg?.hits);
 });
 searchInput.addEventListener("keydown", e => {
   if ((e.key === "ArrowDown" || e.key === "ArrowUp") && suggestions.length) {
