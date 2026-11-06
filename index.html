@@ -709,14 +709,21 @@ async function updateSuggestions() {
   renderSuggestions();
 }
 
-// Put a suggestion in the field and narrow from there.
-// A chain opens up into its stores; a single place (or a group the field
-// already names, so there’s nothing left to narrow) goes straight to its card.
+// Picking a place ends the search: it becomes the current card.
+function choose(p) {
+  closeSearch();
+  show(p);
+}
+
+// A single place is a choice, so it goes straight to its card. A chain opens up
+// into its stores; a group the field already names (nothing left to narrow)
+// lists its places as result cards.
 function accept(sg) {
+  if (sg.count === 1) return choose(sg.hits[0].p);
   const narrowed = norm(sg.label) === norm(searchInput.value);
   searchInput.value = sg.label;
   searchInput.focus();
-  if (sg.count === 1 || narrowed) showResults(sg.label, sg.hits);
+  if (narrowed) showResults(sg.label, sg.hits);
   else updateSuggestions();
 }
 
@@ -737,7 +744,7 @@ async function showResults(query, chosen) {
     const name = el("span", { className: "name" }, curly(p.name));
     if (isExcluded(p)) name.append(el("span", { className: "tag" }, "Excluded"));
     const card = el("button", { type: "button", className: "hit" }, name, p.address, el("br"), p.hood || "");
-    card.addEventListener("click", () => { closeSearch(); show(p); });
+    card.addEventListener("click", () => choose(p));
     return card;
   });
   const count = hits.length === 1 ? "1 match" : `${fmt(hits.length)} matches`;
@@ -860,8 +867,10 @@ searchClear.addEventListener("click", () => {
 });
 searchForm.addEventListener("submit", e => {
   e.preventDefault();
-  // Enter on a highlighted suggestion shows that suggestion’s places.
+  // Enter on a highlighted suggestion: a single place becomes the card,
+  // anything else shows that suggestion’s places.
   const sg = active >= 0 ? suggestions[active] : null;
+  if (sg?.count === 1) return choose(sg.hits[0].p);
   if (sg) searchInput.value = sg.label;
   showResults(searchInput.value, sg?.hits);
 });
