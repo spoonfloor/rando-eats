@@ -167,8 +167,7 @@
   <div id="search-panel" aria-live="polite"></div>
 </main>
 
-<button type="button" id="page-kebab" class="icon-btn" aria-label="Menu" aria-haspopup="menu"
-        aria-controls="page-menu" aria-expanded="false">
+<button type="button" id="page-kebab" class="icon-btn" aria-label="Menu" popovertarget="page-menu">
   <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
     <circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
 </button>
@@ -409,19 +408,20 @@ anchorMenu(cardMenu, () => out.querySelector(".card .icon-btn"));
 const kebab = document.getElementById("page-kebab");
 anchorMenu(pageMenu, () => kebab);
 
-// The page menu button opens the menu itself (no popovertarget) so it can tell
-// a plain click from Option-click or a long press, which add the debug tools.
+// A plain click shows the usual items; Option-click or a long press adds the
+// debug tools. The button keeps popovertarget so the browser treats it as part
+// of the menu (releasing a long press over it doesn’t count as a click outside,
+// which would close the menu), but its click is cancelled so this code decides
+// what opens.
 const LONG_PRESS_MS = 500;
 const debugItems = document.getElementById("debug-items");
-let pressTimer = null, longPressed = false, pageMenuWasOpen = false;
+let pressTimer = null, longPressed = false;
 function openPageMenu(debug) {
   debugItems.hidden = !debug;
   pageMenu.showPopover();
 }
-pageMenu.addEventListener("toggle", e => kebab.setAttribute("aria-expanded", String(e.newState === "open")));
 kebab.addEventListener("pointerdown", e => {
   if (e.button !== 0) return;
-  pageMenuWasOpen = pageMenu.matches(":popover-open"); // this press light-dismisses it
   longPressed = false;
   clearTimeout(pressTimer);
   pressTimer = setTimeout(() => {
@@ -434,9 +434,10 @@ for (const type of ["pointerup", "pointerleave", "pointercancel"])
   kebab.addEventListener(type, () => clearTimeout(pressTimer));
 kebab.addEventListener("contextmenu", e => e.preventDefault()); // touch long press
 kebab.addEventListener("click", e => {
-  if (longPressed) { longPressed = false; return; }   // the long press already opened it
-  if (pageMenuWasOpen) { pageMenuWasOpen = false; return; } // a click on the button closes it
-  openPageMenu(e.altKey);
+  e.preventDefault(); // skip the built-in toggle
+  if (longPressed) { longPressed = false; return; } // the long press already opened it
+  if (pageMenu.matches(":popover-open")) pageMenu.hidePopover();
+  else openPageMenu(e.altKey);
 });
 
 // Clicking blank space hides the card. If a menu was open, that click only
