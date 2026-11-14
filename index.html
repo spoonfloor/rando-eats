@@ -213,12 +213,12 @@
 </dialog>
 
 <script>
-// Canonical list (see NOTES.md): open SF Business Registry locations, geocoded inside
-// SF city limits, holding a DPH restaurant permit (H24/H25/H26).
+// Canonical list (see NOTES.md): open SF Business Registry locations holding a DPH
+// restaurant permit (H24/H25/H26). Only places in SF hold those permits, so there is no
+// geocode filter: the city never mapped some real restaurants (e.g. On the Bridge).
 const QUERY = "https://data.sf.gov/resource/g8m3-pdis.json?" + new URLSearchParams({
   $select: "ttxid,dba_name,full_business_address,lic,neighborhoods_analysis_boundaries",
   $where: "location_end_date IS NULL AND dba_end_date IS NULL" +
-          " AND neighborhoods_analysis_boundaries IS NOT NULL" +
           " AND (lic like '%H24%' OR lic like '%H25%' OR lic like '%H26%')",
   $limit: "10000",
 });
@@ -782,7 +782,6 @@ const monthYear = d => new Date(d).toLocaleDateString("en-US", { month: "short",
 function whyMissing(r) {
   const end = r.location_end_date || r.dba_end_date;
   if (end) return `Closed ${monthYear(end)}`;
-  if (!r.neighborhoods_analysis_boundaries) return "Not geocoded inside SF";
   // Health permits are the H/J codes; an R suffix is a renewal of the same permit.
   const codes = [...new Set((r.lic || "").split(/\s+/).filter(c => /^[HJ]\d/.test(c)).map(c => c.replace(/R$/, "")))];
   if (!codes.some(c => /^H2[456]$/.test(c))) {

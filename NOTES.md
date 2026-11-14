@@ -41,6 +41,7 @@ About 369k rows, one per business *location*. Relevant fields:
 - **NAICS changed on 2026-07-06 (Prop M).** `self_reported_naics_code` is now whatever the business typed in. It ranges from 2 to 6 digits (`72`, `722`, `7220`, `722511`, …), and the description columns are deprecated.
 - **`lic` is the key field.** It lists the DPH permit codes the location holds, space-separated (e.g. `D04R D47R H24R`). In effect, the registry already contains the “has a restaurant health permit” signal.
 - **“Inside SF”:** `neighborhoods_analysis_boundaries IS NOT NULL` means the point was geocoded inside an SF neighborhood polygon. That is more reliable than matching `city` text, which includes values like “S San Fran”.
+  - **Geocode filter dropped (2026-11-14).** The registry lists every business registered to work in SF, so about 25,000 open rows are out-of-town firms. But only SF places hold a DPH restaurant permit, so for restaurant-`lic` rows the geocode filter removed no out-of-town places. It only dropped 57 real SF restaurants that the city never geocoded (no `location` point), such as On the Bridge, Yank Sing, Marufuku and several Pier 39 places. Every one listed its city as “San Francisco.” The list is now 3,718 rows.
 - **“Active”:** `location_end_date IS NULL AND dba_end_date IS NULL`. `administratively_closed` was empty on every row checked.
 
 | Filter (active and inside SF) | Count |
@@ -73,7 +74,7 @@ Only ~22 vendors with APPROVED permits, covering ~170 location permits. Many are
 
 ## Recommendation (adopted 2026-11-04, not widened)
 
-**Definition: in this app, “a restaurant” is an SF Business Registry location that is open (no end date), was geocoded inside SF city limits, and holds a DPH restaurant health permit (H24, H25 or H26), meaning a sit-down or counter-service place of any size, coffee shops included.** Excluded: markets, bars without food, caterers, cafeterias, stadium concessions and food trucks.
+**Definition: in this app, “a restaurant” is an SF Business Registry location that is open (no end date) and holds a DPH restaurant health permit (H24, H25 or H26), meaning a sit-down or counter-service place of any size, coffee shops included.** Excluded: markets, bars without food, caterers, cafeterias, stadium concessions and food trucks.
 
 Filtering approach:
 1. **Primary list: the registry query above (~3,666 rows).** It is one query with no fuzzy join. It already includes the health-permit check through `lic`, and it is the only source that records closures (`location_end_date`).
