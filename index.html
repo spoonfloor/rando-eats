@@ -4,10 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Eat Random!</title>
-<!-- Home Screen: “Rando!” under the die icon, opening full-screen (manifest). -->
+<!-- Home Screen: “Rando!” under the die icon, opening as an app (manifest). No
+     apple-mobile-web-app-status-bar-style on purpose: on iOS 27 “black-translucent” makes
+     iOS blur the top of the screen, #top-bar or not. -->
 <meta name="apple-mobile-web-app-title" content="Rando!">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#111111">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/favicon.svg" type="image/svg+xml">
@@ -79,10 +80,10 @@
   .icon-btn:hover, .icon-btn:focus-visible { background: color-mix(in srgb, var(--card-color), white 12%);
     color: var(--text-color); outline: none; }
   .card .icon-btn { position: absolute; top: 4px; right: 4px; z-index: 1; }
-  /* Top bar: a solid strip pinned to the top edge, under the status bar and holding the
-     page menu. iOS 26 takes a fixed, opaque element at the top edge as the app’s own bar
-     and fills the status bar with its color; without one it blurs whatever page content
-     sits there, the ⋮ included. */
+  /* Top bar: a solid bar pinned to the top edge, holding the page menu. iOS paints the
+     status bar in its color, and on iOS 27 a fixed, full-width, opaque element over 10px
+     tall at the top is what stops iOS blurring the top of the Home Screen app (the ⋮
+     included). Keep it that way. */
   #top-bar { position: fixed; z-index: 1; top: 0; left: 0; right: 0;
     height: calc(max(12px, env(safe-area-inset-top)) + 32px + 12px); background: var(--page-color); }
   /* Page menu: top-right, clear of the notch when installed. */
