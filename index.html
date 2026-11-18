@@ -59,6 +59,28 @@
   #eat, #page-kebab { touch-action: manipulation; -webkit-touch-callout: none;
     -webkit-user-select: none; user-select: none; }
 
+  /* Until the restaurant list arrives, a striped orange bar holds the button’s spot.
+     The list is one request that reports nothing until it’s done, so the bar shows
+     no amount, only that it’s working: the stripes move right to left. On success
+     or failure the button takes its place (a failed load explains itself on tap). */
+  #loader { display: none; }
+  main.loading #eat { display: none; }
+  main.loading #loader {
+    /* One stripe and one gap at 45°, measured along the bar: a seamless repeat. */
+    --stripe: 5px;
+    --stripe-repeat: calc(var(--stripe) * 2 * sqrt(2));
+    display: block; position: absolute; left: 50%; top: calc(50% - var(--lift));
+    transform: translate(-50%, -50%); width: var(--content-width); height: 6px;
+    border-radius: 999px; background-color: var(--theme-color);
+    background-image: repeating-linear-gradient(-45deg, var(--theme-color) 0 var(--stripe),
+      color-mix(in srgb, var(--theme-color), black 30%) var(--stripe) calc(var(--stripe) * 2));
+    background-size: var(--stripe-repeat) var(--stripe-repeat);
+    animation: loader-stripes 350ms linear infinite; }
+  /* The search (a debug tool) hides the button; the bar goes with it. */
+  #eat[hidden] + #loader { display: none; }
+  @keyframes loader-stripes { to { background-position: calc(-1 * var(--stripe-repeat)) 0; } }
+  @media (prefers-reduced-motion: reduce) { main.loading #loader { animation: none; } }
+
   #result { position: absolute; left: 50%; top: calc(50% - var(--lift) + 52px); transform: translateX(-50%);
     width: var(--content-width); }
 
@@ -164,8 +186,9 @@
 </style>
 </head>
 <body>
-<main>
+<main class="loading">
   <button id="eat" type="button">Let’s Eat!</button>
+  <div id="loader" role="progressbar" aria-label="Loading restaurants"></div>
   <div id="result" aria-live="polite"></div>
   <form id="search" role="search" hidden>
     <input id="search-input" type="text" placeholder="Search restaurants" aria-label="Search restaurants"
@@ -280,6 +303,8 @@ const listPromise = fetch(QUERY)
   .then(res => { if (!res.ok) throw new Error(res.status); return res.json(); })
   .then(buildList);
 listPromise.then(l => console.log(`Loaded ${l.length} restaurants`)).catch(() => {});
+// Loaded or not, the launch bar gives way to the button.
+listPromise.catch(() => {}).finally(() => document.querySelector("main").classList.remove("loading"));
 
 // Web storage, or an in-memory stand-in if it's unavailable (blocked, private
 // mode, data: URL). Then: no repeats until reload; exclusions until reload.
